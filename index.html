@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>収録ブース v5 — ポッドキャスト録音</title>
+<style>
+  /* デザイントークン: 色をここに集約しておくと後で一括変更できる */
+  :root {
+    --bg: #16130F;
+    --panel: #211C15;
+    --panel2: #1C1812;
+    --line: #3A3226;
+    --text: #EDE6D8;
+    --muted: #9A8F7C;
+    --dim: #6B6253;
+    --amber: #F2A33C;
+    --red: #E5484D;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Helvetica Neue', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+    padding: 0 16px 48px;
+  }
+  .mono { font-family: 'Consolas', 'Courier New', monospace; }
+  .wrap { max-width: 680px; margin: 0 auto; }
+
+  header { padding: 28px 0 8px; display: flex; align-items: baseline; justify-content: space-between; }
+  .eyebrow { font-size: 11px; letter-spacing: .25em; color: var(--amber); }
+  h1 { margin: 4px 0 0; font-size: 24px; font-weight: 700; letter-spacing: .02em; }
+  .note { font-size: 12px; color: var(--muted); margin: 0 0 24px; line-height: 1.7; }
+
+  .console {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 16px; padding: 28px 24px; text-align: center;
+  }
+  #timer {
+    font-size: 56px; font-weight: 500; letter-spacing: .04em;
+    color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  #timer.live { color: var(--text); }
+  #meter { width: 100%; max-width: 560px; height: 44px; margin: 18px auto 22px; display: block; }
+
+  button { border: none; cursor: pointer; transition: opacity .15s, transform .1s; font-family: inherit; }
+  button:hover { opacity: .85; }
+  button:active { transform: scale(.97); }
+  button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+  #recBtn {
+    width: 84px; height: 84px; border-radius: 50%;
+    background: var(--red); border: 2px solid transparent;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  #recBtn .dot { width: 30px; height: 30px; background: #fff; border-radius: 50%; }
+  #recBtn.recording { background: var(--panel); border-color: var(--red); }
+  #recBtn.recording .dot { width: 26px; height: 26px; background: var(--red); border-radius: 5px; }
+
+  #status { margin-top: 14px; font-size: 13px; color: var(--muted); min-height: 20px; }
+  .live-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--red); margin-right: 8px; animation: pulse 1.2s infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  #error { margin-top: 10px; font-size: 13px; color: var(--red); }
+
+  .lib-label { font-size: 11px; letter-spacing: .25em; color: var(--muted); margin: 28px 0 12px; }
+  .empty { padding: 32px 0; text-align: center; color: var(--dim); font-size: 14px; }
+
+  .card {
+    background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
+  }
+  .card.editing { background: #262017; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .playbtn {
+    width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+    background: var(--line); color: var(--text); font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .playbtn.playing { background: var(--amber); color: var(--bg); }
+  .info { flex: 1; min-width: 140px; }
+  .name { font-size: 14px; font-weight: 600; }
+  .badge { font-size: 10px; color: var(--amber); margin-left: 8px; }
+  .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .iconbtn {
+    background: transparent; color: var(--muted); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 10px; font-size: 12px;
+  }
+  .iconbtn:hover { color: var(--text); border-color: var(--muted); opacity: 1; }
+  .iconbtn.danger { color: var(--red); }
+  .iconbtn.active { color: var(--amber); border-color: var(--amber); }
+
+  .progress { margin-top: 10px; height: 3px; background: var(--line); border-radius: 2px; }
+  .progress > div { height: 100%; width: 0; background: var(--amber); border-radius: 2px; }
+
+  .subpanel { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .subpanel .hint { font-size: 12px; color: var(--muted); margin-bottom: 8px; line-height: 1.6; }
+  .wave {
+    width: 100%; height: 90px; display: block;
+    background: var(--bg); border-radius: 8px;
+    touch-action: none; cursor: crosshair;
+  }
+  .bar { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+  .sel-label { font-size: 12px; color: var(--dim); }
+  .sel-label.active { color: var(--text); }
+  .delbtn {
+    background: var(--line); color: var(--dim);
+    border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600;
+    cursor: not-allowed;
+  }
+  .delbtn.ready { background: var(--red); color: #fff; cursor: pointer; }
+  .primarybtn {
+    background: var(--amber); color: var(--bg);
+    border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600;
+  }
+  .primarybtn:disabled { background: var(--line); color: var(--dim); cursor: not-allowed; }
+
+  .rename-input {
+    background: var(--bg); color: var(--text); border: 1px solid var(--amber);
+    border-radius: 6px; padding: 4px 8px; font-size: 14px; width: 100%; max-width: 240px;
+    font-family: inherit;
+  }
+
+  /* BGMパネル */
+  .bgm-file { font-size: 13px; color: var(--text); }
+  .bgm-file.none { color: var(--dim); }
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 160px; height: 4px; border-radius: 2px;
+    background: var(--line); outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--amber); cursor: pointer;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--amber); cursor: pointer; border: none;
+  }
+  .vol-label { font-size: 12px; color: var(--muted); }
+  .toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--text); cursor: pointer; user-select: none;
+  }
+  .toggle input[type="checkbox"] { accent-color: var(--amber); width: 15px; height: 15px; cursor: pointer; }
+
+  /* BGM素材リンク集 */
+  .links {
+    margin-top: 16px;
+    background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 12px; overflow: hidden;
+  }
+  .links summary {
+    cursor: pointer; padding: 14px 16px;
+    font-size: 13px; font-weight: 600; color: var(--amber);
+    letter-spacing: .05em; list-style: none;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .links summary::-webkit-details-marker { display: none; }
+  .links summary::after { content: "▾"; margin-left: auto; color: var(--muted); transition: transform .2s; }
+  .links[open] summary::after { transform: rotate(180deg); }
+  .links summary:hover { background: rgba(242,163,60,0.06); }
+  .links-body { padding: 0 16px 16px; }
+  .links-note { font-size: 11px; color: var(--muted); line-height: 1.7; margin: 0 0 12px; }
+  .links-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+  .link-card {
+    display: block; text-decoration: none;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; transition: border-color .15s;
+  }
+  .link-card:hover { border-color: var(--amber); }
+  .link-card .lc-name { font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px; }
+  .link-card .lc-name::after { content: "↗"; font-size: 11px; color: var(--amber); }
+  .link-card .lc-desc { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow mono">ON AIR STUDIO</div>
+      <h1>収録ブース <span class="mono" style="font-size:12px;color:var(--muted)">v5</span></h1>
+    </div>
+    <div class="mono" id="count" style="font-size:11px;color:var(--muted)"></div>
+  </header>
+  <p class="note">※ 録音はブラウザのメモリ上にのみ保持されます。残したい録音はMP3/WAVでダウンロードしてください(再読み込みで消えます)。<br>
+  ※ BGMはフリー素材サイト等からご自身でダウンロードしたファイルを読み込んでください(素材の利用規約はご確認を)。</p>
+
+  <section class="console">
+    <div id="timer" class="mono">00:00</div>
+    <canvas id="meter" width="560" height="44"></canvas>
+    <button id="recBtn" aria-label="録音を開始"><span class="dot"></span></button>
+    <div id="status">タップして収録開始</div>
+    <div id="error"></div>
+  </section>
+
+  <!-- BGMフリー素材リンク集: 折りたたみ式にして普段は邪魔にならないようにする -->
+  <details class="links">
+    <summary>♪ BGMフリー素材リンク集</summary>
+    <div class="links-body">
+      <p class="links-note">いずれも無料でダウンロードできる定番サイトです。ただしクレジット表記の要否や配信・収益化の可否など条件はサイトごと・曲ごとに異なるため、利用前に各サイトの利用規約を必ず確認してください。</p>
+      <div class="links-grid">
+        <a class="link-card" href="https://dova-s.jp/" target="_blank" rel="noopener noreferrer">
+          <span class="lc-name">DOVA-SYNDROME</span>
+          <span class="lc-desc">国内最大級・約1.9万曲。商用利用可・連絡不要で定番中の定番</span>
+        </a>
+        <a class="link-card" href="https://bgmer.net/" target="_blank" rel="noopener noreferrer">
+          <span class="lc-name">BGMer</span>
+          <span class="lc-desc">「トーク系」カテゴリあり。短尺/長尺で選べてポッドキャスト向き</span>
+        </a>
+        <a class="link-card" href="https://amachamusic.chagasi.com/" target="_blank" rel="noopener noreferrer">
+          <span class="lc-name">甘茶の音楽工房</span>
+          <span class="lc-desc">あたたかく優しい曲調が中心。雰囲気・イメージ別に探せる</span>
+        </a>
+        <a class="link-card" href="https://musmus.main.jp/" target="_blank" rel="noopener noreferrer">
+          <span class="lc-name">MusMus</span>
+          <span class="lc-desc">配信や動画で広く使われる人気サイト。ループ素材も豊富</span>
+        </a>
+        <a class="link-card" href="https://otologic.jp/" target="_blank" rel="noopener noreferrer">
+          <span class="lc-name">OtoLogic</span>
+          <span class="lc-desc">BGMに加えジングル・効果音が充実。番組の区切り音にも</span>
+        </a>
+      </div>
+    </div>
+  </details>
+
+  <div class="lib-label mono">LIBRARY</div>
+  <div id="list"></div>
+</div>
+
+<script>
+/* ============================================================
+   v2 追加分の構成メモ(学習用):
+   - BGMミックス: 声とBGMを OfflineAudioContext(画面に出さず高速に
+     音声処理だけ行う仮想のオーディオ環境)で合成し、
+     「新しい録音」としてライブラリに追加する。
+     元の録音は残す = 非破壊編集。失敗してもやり直せる設計。
+   - MP3書き出し: ブラウザ標準ではMP3を作れないため、
+     MP3エンコーダ「LAME」のJS移植版 lamejs をCDNから読み込む。
+     読み込み失敗時はWAV保存を案内(フォールバック)。
+   ============================================================ */
+
+// ---------- 状態 ----------
+let recordings = [];
+let idCounter = 1;
+let isRecording = false;
+let mediaRecorder = null, stream = null, chunks = [];
+let timerInterval = null, rafId = null;
+let audioCtx = null, analyser = null;
+let playingId = null;
+const player = new Audio();
+let editingId = null, editBuffer = null, selection = null, dragAnchor = null;
+let dragMoved = false, downX = 0; // タップとドラッグを区別するための記録
+let playhead = 0;                 // 編集パネルの再生位置(秒)
+let edCtx = null;                 // 編集試聴用AudioContext
+let edRaf = null, edStartT = 0, edOffset = 0, edEndAt = 0, edGen = 0;
+let pvRaf = null, pvStartT = 0, pvOffset = 0, pvDur = 0, pvGen = 0;
+let pvVoiceBuf = null, pvDragging = false; // 試聴用に声をキャッシュ(シーク毎のデコードを回避)
+
+// BGM関連
+let bgmPanelId = null;       // BGMパネルを開いている録音ID
+let bgmBuffer = null;        // 読み込んだBGMのAudioBuffer
+let bgmFileName = null;
+let bgmVolume = 0.25;        // 既定25%(声の邪魔をしない目安)
+let duckEnabled = true;      // 自動ダッキング(声のある区間でBGMを絞る)
+let normalizeEnabled = true; // 声のノーマライズ(音量の引き上げ)
+let previewCtx = null;       // 試聴用AudioContext
+
+// ---------- ユーティリティ ----------
+const $ = (id) => document.getElementById(id);
+function fmtTime(sec) {
+  if (!isFinite(sec) || sec < 0) sec = 0;
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+}
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+// 録音blobをAudioBufferに展開する共通処理(編集・ミックス・書き出しで使う)
+async function decodeBlob(blob) {
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  const buf = await ac.decodeAudioData(await blob.arrayBuffer());
+  ac.close();
+  return buf;
+}
+
+// ---------- WAVエンコーダ ----------
+function audioBufferToWav(buffer) {
+  const numCh = buffer.numberOfChannels, sampleRate = buffer.sampleRate;
+  const numFrames = buffer.length, bytesPerSample = 2;
+  const dataSize = numFrames * numCh * bytesPerSample;
+  const ab = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(ab);
+  const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+  writeStr(0, "RIFF"); view.setUint32(4, 36 + dataSize, true); writeStr(8, "WAVE");
+  writeStr(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+  view.setUint16(22, numCh, true); view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * numCh * bytesPerSample, true);
+  view.setUint16(32, numCh * bytesPerSample, true); view.setUint16(34, 16, true);
+  writeStr(36, "data"); view.setUint32(40, dataSize, true);
+  let offset = 44;
+  const channels = [];
+  for (let ch = 0; ch < numCh; ch++) channels.push(buffer.getChannelData(ch));
+  for (let i = 0; i < numFrames; i++) {
+    for (let ch = 0; ch < numCh; ch++) {
+      let s = Math.max(-1, Math.min(1, channels[ch][i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      offset += 2;
+    }
+  }
+  return new Blob([ab], { type: "audio/wav" });
+}
+
+// ---------- MP3エンコーダ(lamejs) ----------
+// なぜ遅延読み込みか: MP3を使わない人にまで読み込ませる必要がないのと、
+// オフライン時でも録音機能自体は影響を受けないようにするため。
+let lameLoading = null;
+function ensureLame() {
+  if (window.lamejs) return Promise.resolve(true);
+  if (!lameLoading) {
+    lameLoading = new Promise((resolve) => {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.0/lame.min.js";
+      s.onload = () => resolve(!!window.lamejs);
+      s.onerror = () => resolve(false);
+      document.head.append(s);
+    });
+  }
+  return lameLoading;
+}
+
+// Web Audioの音声は -1.0〜1.0 の小数、MP3エンコーダは16bit整数を
+// 受け取るので変換が必要(WAVのときと同じ理屈)
+function floatTo16(f32) {
+  const out = new Int16Array(f32.length);
+  for (let i = 0; i < f32.length; i++) {
+    const s = Math.max(-1, Math.min(1, f32[i]));
+    out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  return out;
+}
+
+function audioBufferToMp3(buffer) {
+  const ch = Math.min(2, buffer.numberOfChannels);
+  const encoder = new lamejs.Mp3Encoder(ch, buffer.sampleRate, 128); // 128kbps = ポッドキャスト標準的品質
+  const left = floatTo16(buffer.getChannelData(0));
+  const right = ch === 2 ? floatTo16(buffer.getChannelData(1)) : null;
+  const block = 1152; // MP3のフレーム単位
+  const parts = [];
+  for (let i = 0; i < left.length; i += block) {
+    const l = left.subarray(i, i + block);
+    const mp3buf = ch === 2
+      ? encoder.encodeBuffer(l, right.subarray(i, i + block))
+      : encoder.encodeBuffer(l);
+    if (mp3buf.length > 0) parts.push(new Int8Array(mp3buf));
+  }
+  const tail = encoder.flush();
+  if (tail.length > 0) parts.push(new Int8Array(tail));
+  return new Blob(parts, { type: "audio/mp3" });
+}
+
+// ---------- 音量メーター ----------
+function drawMeter() {
+  const canvas = $("meter");
+  const ctx = canvas.getContext("2d");
+  const data = new Uint8Array(analyser.fftSize);
+  analyser.getByteTimeDomainData(data);
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
+  const level = Math.min(1, Math.sqrt(sum / data.length) * 2.8);
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  const segs = 28, gap = 4, segW = (W - gap * (segs - 1)) / segs;
+  const lit = Math.round(level * segs);
+  for (let i = 0; i < segs; i++) {
+    const t = i / segs;
+    ctx.fillStyle = i < lit
+      ? (t < .6 ? "#F2A33C" : t < .85 ? "#F07B3A" : "#E5484D")
+      : "rgba(242,163,60,0.12)";
+    const h = H * (0.35 + 0.65 * t);
+    ctx.beginPath();
+    ctx.roundRect(i * (segW + gap), H - h, segW, h, 2);
+    ctx.fill();
+  }
+  rafId = requestAnimationFrame(drawMeter);
+}
+
+// ---------- 録音 ----------
+async function startRecording() {
+  $("error").textContent = "";
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    source.connect(analyser);
+
+    mediaRecorder = new MediaRecorder(stream);
+    chunks = [];
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    mediaRecorder.onstop = onRecordingStopped;
+    mediaRecorder.start();
+
+    isRecording = true;
+    $("recBtn").classList.add("recording");
+    $("recBtn").setAttribute("aria-label", "録音を停止");
+    $("timer").classList.add("live");
+    $("status").innerHTML = '<span class="live-dot"></span>収録中 — タップで停止';
+    const t0 = Date.now();
+    timerInterval = setInterval(() => { $("timer").textContent = fmtTime((Date.now() - t0) / 1000); }, 200);
+    rafId = requestAnimationFrame(drawMeter);
+  } catch (err) {
+    let msg = "マイクにアクセスできませんでした。";
+    if (err.name === "NotAllowedError") msg += " ブラウザのアドレスバー左のアイコンからマイクを「許可」にしてください。";
+    else if (err.name === "NotFoundError") msg += " マイクが見つかりません。接続を確認してください。";
+    else msg += " (" + err.name + ")";
+    $("error").textContent = msg;
+  }
+}
+
+async function onRecordingStopped() {
+  const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
+  const url = URL.createObjectURL(blob);
+  let duration = 0;
+  try { duration = (await decodeBlob(blob)).duration; } catch (e) {}
+  const now = new Date();
+  recordings.unshift({
+    id: idCounter++,
+    name: "収録 " + String(recordings.length + 1).padStart(2, "0"),
+    blob, url, duration,
+    createdAt: (now.getMonth() + 1) + "/" + now.getDate() + " " +
+      String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0"),
+    edited: false, mixed: false,
+  });
+  renderList();
+}
+
+function stopRecording() {
+  mediaRecorder?.stop();
+  stream?.getTracks().forEach((t) => t.stop());
+  audioCtx?.close();
+  cancelAnimationFrame(rafId);
+  clearInterval(timerInterval);
+  isRecording = false;
+  $("recBtn").classList.remove("recording");
+  $("recBtn").setAttribute("aria-label", "録音を開始");
+  $("timer").classList.remove("live");
+  $("status").textContent = "タップして収録開始";
+  const c = $("meter");
+  c.getContext("2d").clearRect(0, 0, c.width, c.height);
+}
+
+$("recBtn").addEventListener("click", () => isRecording ? stopRecording() : startRecording());
+
+// ---------- 再生 ----------
+player.addEventListener("timeupdate", () => {
+  if (!player.duration) return;
+  const bar = document.querySelector('.progress > div');
+  if (bar) bar.style.width = (player.currentTime / player.duration * 100) + "%";
+});
+player.addEventListener("ended", () => { playingId = null; renderList(); });
+
+function togglePlay(id) {
+  stopPreview();
+  stopEdPlay();
+  const rec = recordings.find((r) => r.id === id);
+  if (playingId === id) { player.pause(); playingId = null; }
+  else { player.src = rec.url; player.play(); playingId = id; }
+  renderList();
+}
+
+// ---------- 一覧描画 ----------
+function renderList() {
+  $("count").textContent = recordings.length ? recordings.length + " 件" : "";
+  const list = $("list");
+  if (recordings.length === 0) {
+    list.innerHTML = '<div class="empty">まだ録音がありません。上の赤いボタンから最初の一本をどうぞ。</div>';
+    return;
+  }
+  list.innerHTML = "";
+  recordings.forEach((rec) => {
+    const card = document.createElement("div");
+    card.className = "card" + (editingId === rec.id || bgmPanelId === rec.id ? " editing" : "");
+
+    const row = document.createElement("div");
+    row.className = "row";
+
+    const playBtn = document.createElement("button");
+    playBtn.className = "playbtn" + (playingId === rec.id ? " playing" : "");
+    playBtn.textContent = playingId === rec.id ? "❚❚" : "▶";
+    playBtn.setAttribute("aria-label", playingId === rec.id ? "一時停止" : "再生");
+    playBtn.onclick = () => togglePlay(rec.id);
+
+    const info = document.createElement("div");
+    info.className = "info";
+    info.innerHTML =
+      '<div class="name">' + escapeHtml(rec.name) +
+      (rec.edited ? '<span class="badge mono">EDITED</span>' : "") +
+      (rec.mixed ? '<span class="badge mono">+BGM</span>' : "") + "</div>" +
+      '<div class="meta mono">' + fmtTime(rec.duration) + " ・ " + rec.createdAt + "</div>";
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    const bgmBtn = makeBtn("BGM", () => bgmPanelId === rec.id ? closeBgmPanel() : openBgmPanel(rec));
+    if (bgmPanelId === rec.id) bgmBtn.classList.add("active");
+    actions.append(
+      makeBtn("名前", () => startRename(rec, info)),
+      makeBtn(editingId === rec.id ? "閉じる" : "編集", () => editingId === rec.id ? closeEditor() : openEditor(rec)),
+      bgmBtn,
+      makeBtn("MP3", (e) => downloadMp3(rec, e.target)),
+      makeBtn("WAV", () => downloadWav(rec)),
+      makeBtn("削除", () => deleteRecording(rec), true),
+    );
+
+    row.append(playBtn, info, actions);
+    card.append(row);
+
+    if (playingId === rec.id) {
+      const prog = document.createElement("div");
+      prog.className = "progress";
+      prog.innerHTML = "<div></div>";
+      card.append(prog);
+    }
+
+    if (editingId === rec.id) card.append(buildEditor());
+    if (bgmPanelId === rec.id) card.append(buildBgmPanel(rec));
+    list.append(card);
+  });
+  if (editingId && editBuffer) requestAnimationFrame(() => drawWaveform());
+}
+
+function makeBtn(label, onClick, danger) {
+  const b = document.createElement("button");
+  b.className = "iconbtn" + (danger ? " danger" : "");
+  b.textContent = label;
+  b.onclick = onClick;
+  return b;
+}
+
+// ---------- リネーム ----------
+function startRename(rec, infoEl) {
+  const input = document.createElement("input");
+  input.className = "rename-input";
+  input.value = rec.name;
+  const commit = () => { rec.name = input.value.trim() || rec.name; renderList(); };
+  input.onblur = commit;
+  input.onkeydown = (e) => { if (e.key === "Enter") input.blur(); };
+  infoEl.querySelector(".name").replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+// ---------- 削除 ----------
+function deleteRecording(rec) {
+  if (!confirm("「" + rec.name + "」を削除します。元に戻せませんがよろしいですか?")) return;
+  if (playingId === rec.id) { player.pause(); playingId = null; }
+  if (editingId === rec.id) closeEditor();
+  if (bgmPanelId === rec.id) closeBgmPanel();
+  URL.revokeObjectURL(rec.url);
+  recordings = recordings.filter((r) => r.id !== rec.id);
+  renderList();
+}
+
+// ---------- 書き出し ----------
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  // ダウンロード開始後にURLを破棄(メモリ解放)
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+async function downloadWav(rec) {
+  try {
+    const blob = rec.blob.type.includes("wav")
+      ? rec.blob
+      : audioBufferToWav(await decodeBlob(rec.blob));
+    triggerDownload(blob, rec.name + ".wav");
+  } catch (e) {
+    $("error").textContent = "WAV書き出しに失敗しました: " + e.message;
+  }
+}
+
+async function downloadMp3(rec, btn) {
+  const orig = btn ? btn.textContent : null;
+  if (btn) { btn.textContent = "変換中…"; btn.disabled = true; }
+  try {
+    const ok = await ensureLame();
+    if (!ok) {
+      // フォールバック: エンコーダが読み込めない(オフライン等)場合はWAVを案内
+      $("error").textContent = "MP3エンコーダを読み込めませんでした(ネット接続が必要です)。代わりにWAV保存をご利用ください。";
+      return;
+    }
+    const buf = await decodeBlob(rec.blob);
+    const mp3 = audioBufferToMp3(buf);
+    triggerDownload(mp3, rec.name + ".mp3");
+  } catch (e) {
+    $("error").textContent = "MP3書き出しに失敗しました: " + e.message;
+  } finally {
+    if (btn) { btn.textContent = orig; btn.disabled = false; }
+  }
+}
+
+// ---------- 編集(範囲削除) ----------
+async function openEditor(rec) {
+  closeBgmPanel();
+  try {
+    editBuffer = await decodeBlob(rec.blob);
+    editingId = rec.id;
+    selection = null;
+    playhead = 0;
+    renderList();
+  } catch (e) {
+    $("error").textContent = "この録音をデコードできませんでした。";
+  }
+}
+
+function closeEditor() {
+  stopEdPlay();
+  editingId = null; editBuffer = null; selection = null; playhead = 0;
+  renderList();
+}
+
+function buildEditor() {
+  const ed = document.createElement("div");
+  ed.className = "subpanel";
+  ed.innerHTML = '<div class="hint">波形を<b>タップ</b>すると再生位置(白いライン)がセットされ、音を聞いて切る場所を探せます。<b>ドラッグ</b>で削除範囲を選択。削除後はカット地点から再生して繋ぎ目を確認できます。</div>';
+
+  const canvas = document.createElement("canvas");
+  canvas.className = "wave";
+  canvas.id = "wave";
+  // タップとドラッグの区別: 指がほぼ動かなければタップとみなす(5px基準)。
+  // スマホの指は数px揺れるので、移動量で判定するのが定石。
+  canvas.onpointerdown = (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    dragAnchor = posToTime(e, canvas);
+    dragMoved = false;
+    downX = e.clientX;
+  };
+  canvas.onpointermove = (e) => {
+    if (dragAnchor == null) return;
+    if (!dragMoved && Math.abs(e.clientX - downX) > 5) dragMoved = true;
+    if (!dragMoved) return;
+    const t = posToTime(e, canvas);
+    selection = { start: Math.min(dragAnchor, t), end: Math.max(dragAnchor, t) };
+    updateEditorBar(); drawWaveform();
+  };
+  canvas.onpointerup = () => {
+    if (dragAnchor == null) return;
+    if (!dragMoved) { // タップ → 再生位置をセット
+      playhead = dragAnchor;
+      selection = null;
+      updateEditorBar(); drawWaveform();
+    }
+    dragAnchor = null;
+  };
+  ed.append(canvas);
+
+  const bar = document.createElement("div");
+  bar.className = "bar";
+  bar.id = "editorBar";
+  ed.append(bar);
+  updateEditorBar(bar);
+  return ed;
+}
+
+// ---------- 編集パネルの試聴(v5追加) ----------
+// editBuffer(メモリ上の波形)を直接鳴らす。HTMLAudioではなくWeb Audioを
+// 使うのは「任意の位置から・任意の長さだけ」をsrc.start(0, 開始, 長さ)の
+// 一行で正確に指定できるため。
+function startEdPlay(selOnly) {
+  stopEdPlay();
+  player.pause(); playingId = null;
+  stopPreview();
+  if (!editBuffer) return;
+  const gen = ++edGen; // 世代番号: 古い再生のonendedが新しい再生を壊さないための仕組み
+  edCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = edCtx.createBufferSource();
+  src.buffer = editBuffer;
+  src.connect(edCtx.destination);
+
+  let from = playhead || 0;
+  let until = editBuffer.duration;
+  if (selOnly && selection) { from = selection.start; until = selection.end; }
+  from = Math.max(0, Math.min(from, editBuffer.duration - 0.05));
+  src.start(0, from, Math.max(0.05, until - from));
+  edOffset = from; edStartT = edCtx.currentTime; edEndAt = until;
+
+  src.onended = () => {
+    if (gen !== edGen) return; // 手動停止やシークで世代が進んでいたら無視
+    const reachedEnd = edEndAt >= editBuffer.duration - 0.05;
+    playhead = selOnly && selection ? selection.start : (reachedEnd ? 0 : edEndAt);
+    stopEdPlay();
+    updateEditorBar(); drawWaveform();
+  };
+  edTick();
+  updateEditorBar();
+}
+
+function edTick() {
+  if (!edCtx) return;
+  // 現在位置 = 開始位置 + 経過時間。AudioContextの時計は高精度。
+  playhead = Math.min(edEndAt, edOffset + (edCtx.currentTime - edStartT));
+  const tl = $("edTime");
+  if (tl && editBuffer) tl.textContent = fmtTime(playhead) + " / " + fmtTime(editBuffer.duration);
+  drawWaveform();
+  edRaf = requestAnimationFrame(edTick);
+}
+
+function stopEdPlay() {
+  edGen++;
+  if (edRaf) cancelAnimationFrame(edRaf);
+  edRaf = null;
+  if (edCtx) { try { edCtx.close(); } catch (e) {} edCtx = null; }
+}
+
+function updateEditorBar(barEl) {
+  const bar = barEl || $("editorBar");
+  if (!bar) return;
+  bar.innerHTML = "";
+
+  // 再生コントロール行
+  const playRow = document.createElement("div");
+  playRow.style.cssText = "display:flex;align-items:center;gap:12px;flex-wrap:wrap;width:100%";
+  const playBtn = document.createElement("button");
+  playBtn.className = "iconbtn" + (edCtx ? " active" : "");
+  playBtn.textContent = edCtx ? "■ 停止" : "▶ ここから再生";
+  playBtn.onclick = () => {
+    if (edCtx) { stopEdPlay(); updateEditorBar(); drawWaveform(); }
+    else startEdPlay(false);
+  };
+  playRow.append(playBtn);
+  if (selection && selection.end - selection.start >= 0.02) {
+    playRow.append(makeBtn("選択範囲だけ再生", () => startEdPlay(true)));
+  }
+  const tl = document.createElement("span");
+  tl.className = "vol-label mono";
+  tl.id = "edTime";
+  tl.textContent = editBuffer ? fmtTime(playhead) + " / " + fmtTime(editBuffer.duration) : "";
+  playRow.append(tl);
+  bar.append(playRow);
+
+  // 選択・削除行
+  const selRow = document.createElement("div");
+  selRow.style.cssText = "display:flex;align-items:center;gap:12px;flex-wrap:wrap;width:100%;margin-top:8px";
+  const label = document.createElement("span");
+  label.className = "sel-label mono" + (selection ? " active" : "");
+  label.textContent = selection
+    ? "選択: " + fmtTime(selection.start) + " → " + fmtTime(selection.end)
+    : "未選択(ドラッグで範囲選択)";
+  selRow.append(label);
+
+  const valid = selection && selection.end - selection.start >= 0.02;
+  const del = document.createElement("button");
+  del.className = "delbtn" + (valid ? " ready" : "");
+  del.textContent = "選択範囲を削除";
+  del.onclick = () => { if (valid) deleteSelection(); };
+  selRow.append(del);
+
+  if (selection) {
+    selRow.append(makeBtn("選択解除", () => { selection = null; updateEditorBar(); drawWaveform(); }));
+  }
+  bar.append(selRow);
+}
+
+function posToTime(e, canvas) {
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+  return (x / rect.width) * editBuffer.duration;
+}
+
+function drawWaveform() {
+  const canvas = $("wave");
+  if (!canvas || !editBuffer) return;
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth, cssH = canvas.clientHeight;
+  canvas.width = cssW * dpr;
+  canvas.height = cssH * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const data = editBuffer.getChannelData(0);
+  const step = Math.max(1, Math.floor(data.length / cssW));
+  const mid = cssH / 2;
+
+  if (selection) {
+    const x1 = (selection.start / editBuffer.duration) * cssW;
+    const x2 = (selection.end / editBuffer.duration) * cssW;
+    ctx.fillStyle = "rgba(229,72,77,0.18)";
+    ctx.fillRect(x1, 0, x2 - x1, cssH);
+  }
+
+  for (let x = 0; x < cssW; x++) {
+    let min = 1, max = -1;
+    const start = x * step;
+    for (let i = 0; i < step && start + i < data.length; i++) {
+      const v = data[start + i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    const t = (x / cssW) * editBuffer.duration;
+    const inSel = selection && t >= selection.start && t <= selection.end;
+    ctx.strokeStyle = inSel ? "#E5484D" : "#F2A33C";
+    ctx.beginPath();
+    ctx.moveTo(x + .5, mid + min * mid * .92);
+    ctx.lineTo(x + .5, mid + max * mid * .92);
+    ctx.stroke();
+  }
+
+  if (selection) {
+    const x1 = (selection.start / editBuffer.duration) * cssW;
+    const x2 = (selection.end / editBuffer.duration) * cssW;
+    ctx.fillStyle = "#E5484D";
+    ctx.fillRect(x1 - 1, 0, 2, cssH);
+    ctx.fillRect(x2 - 1, 0, 2, cssH);
+  }
+
+  // 再生位置(プレイヘッド): 白いラインで現在地を示す
+  if (playhead != null) {
+    const px = (playhead / editBuffer.duration) * cssW;
+    ctx.fillStyle = "#EDE6D8";
+    ctx.fillRect(px - 0.75, 0, 1.5, cssH);
+  }
+}
+
+async function deleteSelection() {
+  const rec = recordings.find((r) => r.id === editingId);
+  if (!editBuffer || !rec || !selection) return;
+  if (!confirm(fmtTime(selection.start) + "〜" + fmtTime(selection.end) + " の区間を削除します。よろしいですか?")) return;
+  stopEdPlay();
+
+  try {
+    const sr = editBuffer.sampleRate;
+    const s = Math.floor(selection.start * sr);
+    const e = Math.min(editBuffer.length, Math.floor(selection.end * sr));
+    const newLen = editBuffer.length - (e - s);
+    if (newLen < sr * 0.1) throw new Error("残りが短すぎます");
+
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const out = ac.createBuffer(editBuffer.numberOfChannels, newLen, sr);
+    for (let ch = 0; ch < editBuffer.numberOfChannels; ch++) {
+      const src = editBuffer.getChannelData(ch);
+      const dst = out.getChannelData(ch);
+      dst.set(src.subarray(0, s), 0);
+      dst.set(src.subarray(e), s);
+    }
+    ac.close();
+
+    const wavBlob = audioBufferToWav(out);
+    URL.revokeObjectURL(rec.url);
+    rec.blob = wavBlob;
+    rec.url = URL.createObjectURL(wavBlob);
+    rec.duration = out.duration;
+    rec.edited = true;
+    editBuffer = out;
+    // カット地点を再生位置にセット → 「▶ ここから再生」で繋ぎ目をすぐ確認できる
+    playhead = Math.max(0, Math.min(selection.start, out.duration - 0.05));
+    selection = null;
+    renderList();
+  } catch (err) {
+    $("error").textContent = "編集に失敗しました: " + err.message;
+  }
+}
+
+// ---------- BGMミックス ----------
+function openBgmPanel(rec) {
+  closeEditor();
+  stopPreview();
+  bgmPanelId = rec.id;
+  renderList();
+}
+
+function closeBgmPanel() {
+  stopPreview();
+  bgmPanelId = null;
+  renderList();
+}
+
+function buildBgmPanel(rec) {
+  const p = document.createElement("div");
+  p.className = "subpanel";
+  p.innerHTML = '<div class="hint">BGMファイル(mp3 / wav / m4a など)を読み込み、音量を調整して試聴。よければ「BGM付きで新規保存」でライブラリに追加されます。元の録音はそのまま残ります。<br>BGMが声より短い場合は自動でループし、終わりは2秒かけてフェードアウトします。</div>';
+
+  // 自動音量コントロールのトグル(v4追加)
+  const optRow = document.createElement("div");
+  optRow.className = "bar";
+  const makeToggle = (labelText, checked, onChange) => {
+    const label = document.createElement("label");
+    label.className = "toggle";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = checked;
+    cb.onchange = () => onChange(cb.checked);
+    label.append(cb, document.createTextNode(labelText));
+    return label;
+  };
+  optRow.append(
+    makeToggle("声に合わせてBGMを自動で絞る", duckEnabled, (v) => { duckEnabled = v; stopPreview(); renderList(); }),
+    makeToggle("声の音量を整える", normalizeEnabled, (v) => { normalizeEnabled = v; stopPreview(); renderList(); }),
+  );
+  p.append(optRow);
+
+  // ファイル選択
+  const fileRow = document.createElement("div");
+  fileRow.className = "bar";
+  const fileBtn = makeBtn("BGMファイルを選択", () => fileInput.click());
+  const fileLabel = document.createElement("span");
+  fileLabel.className = "bgm-file" + (bgmFileName ? "" : " none");
+  fileLabel.textContent = bgmFileName || "未選択";
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = "audio/*";
+  fileInput.style.display = "none";
+  fileInput.onchange = async () => {
+    const f = fileInput.files[0];
+    if (!f) return;
+    fileLabel.textContent = "読み込み中…";
+    try {
+      bgmBuffer = await decodeBlob(f);
+      bgmFileName = f.name;
+    } catch (e) {
+      bgmBuffer = null; bgmFileName = null;
+      $("error").textContent = "BGMファイルを読み込めませんでした(対応していない形式の可能性があります)。";
+    }
+    renderList();
+  };
+  fileRow.append(fileBtn, fileLabel, fileInput);
+  p.append(fileRow);
+
+  // 音量スライダー
+  const volRow = document.createElement("div");
+  volRow.className = "bar";
+  const volLabel = document.createElement("span");
+  volLabel.className = "vol-label";
+  volLabel.textContent = "BGM音量: " + Math.round(bgmVolume * 100) + "%";
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.min = 0; slider.max = 100; slider.value = Math.round(bgmVolume * 100);
+  slider.oninput = () => {
+    bgmVolume = slider.value / 100;
+    volLabel.textContent = "BGM音量: " + slider.value + "%";
+    // 試聴中ならリアルタイムに音量へ反映
+    if (previewCtx && previewCtx._bgmGain) previewCtx._bgmGain.gain.value = bgmVolume;
+  };
+  volRow.append(volLabel, slider);
+  p.append(volRow);
+
+  // 操作ボタン
+  const btnRow = document.createElement("div");
+  btnRow.className = "bar";
+  const previewBtn = document.createElement("button");
+  previewBtn.className = "iconbtn";
+  previewBtn.textContent = previewCtx ? "試聴を停止" : "試聴";
+  previewBtn.onclick = async () => {
+    if (previewCtx) { stopPreview(); renderList(); return; }
+    if (!bgmBuffer) { $("error").textContent = "先にBGMファイルを選択してください。"; return; }
+    await startPreview(rec);
+    renderList();
+  };
+  const mixBtn = document.createElement("button");
+  mixBtn.className = "primarybtn";
+  mixBtn.textContent = "BGM付きで新規保存";
+  mixBtn.disabled = !bgmBuffer;
+  mixBtn.onclick = () => commitMix(rec, mixBtn);
+  btnRow.append(previewBtn, mixBtn);
+  p.append(btnRow);
+
+  // 試聴用シークバー(v5追加): 試聴中に任意の位置へジャンプできる。
+  // 「input=ドラッグ中(表示だけ更新)」「change=指を離した(実際にシーク)」と
+  // イベントを分けるのがコツ。ドラッグ中に毎回再生をやり直すと音が暴れるため。
+  const seekRow = document.createElement("div");
+  seekRow.className = "bar";
+  const seek = document.createElement("input");
+  seek.type = "range";
+  seek.id = "pvSeek";
+  seek.min = 0; seek.max = 1000; seek.value = 0;
+  seek.style.flex = "1";
+  seek.disabled = !previewCtx;
+  seek.oninput = () => {
+    pvDragging = true; // ドラッグ中は自動更新(pvTick)による上書きを止める
+    if (pvDur) $("pvTime").textContent = fmtTime(seek.value / 1000 * pvDur) + " / " + fmtTime(pvDur);
+  };
+  seek.onchange = async () => {
+    pvDragging = false;
+    if (!previewCtx || !pvDur) return;
+    await startPreview(rec, seek.value / 1000 * pvDur); // 指を離した位置から再構築
+  };
+  const timeLabel = document.createElement("span");
+  timeLabel.className = "vol-label mono";
+  timeLabel.id = "pvTime";
+  timeLabel.textContent = "00:00 / --:--";
+  seekRow.append(seek, timeLabel);
+  p.append(seekRow);
+
+  return p;
+}
+
+// ---------- 音量自動コントロール(v4追加) ----------
+
+// 声のノーマライズ: 録音全体のピーク(最大振幅)を調べ、
+// 目標レベル(-1dB相当=0.89)まで持ち上げる係数を返す。
+// 増幅は最大4倍まで — 上げすぎると背景ノイズも一緒に大きくなるため。
+function computeVoiceGain(buf) {
+  let peak = 0;
+  for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < d.length; i += 10) { // 10サンプル間引き=精度を保ちつつ高速化
+      const v = Math.abs(d[i]);
+      if (v > peak) peak = v;
+    }
+  }
+  if (peak < 0.001) return 1; // ほぼ無音なら触らない
+  return Math.min(4, 0.89 / peak);
+}
+
+// 声のエンベロープ(音量の輪郭): 50msごとのRMSを並べた配列を作る。
+// 「どの瞬間に喋っているか」を知るための下ごしらえ。
+function computeEnvelope(buf, win) {
+  const d = buf.getChannelData(0);
+  const winSamples = Math.max(1, Math.floor(buf.sampleRate * win));
+  const n = Math.max(2, Math.ceil(d.length / winSamples));
+  const env = new Float32Array(n);
+  for (let w = 0; w < n; w++) {
+    let sum = 0, c = 0;
+    const end = Math.min(d.length, (w + 1) * winSamples);
+    for (let i = w * winSamples; i < end; i += 4) { sum += d[i] * d[i]; c++; }
+    env[w] = c ? Math.sqrt(sum / c) : 0;
+  }
+  return env;
+}
+
+// ダッキングカーブ: エンベロープから「BGMの音量倍率の時系列」を作る。
+// 1.0=そのまま、duckRatio=絞った状態。
+// 絞るのは速く(attack)、戻すのは遅く(release)するのが定石 —
+// 急に戻ると耳が「音が暴れている」と感じるため。
+function buildDuckCurve(env, duckRatio) {
+  let sum = 0;
+  for (let i = 0; i < env.length; i++) sum += env[i];
+  const avg = sum / env.length;
+  // しきい値は録音ごとの平均音量から相対的に決める(声の大小に自動適応)
+  const th = Math.max(0.008, avg * 0.35);
+  const curve = new Float32Array(env.length);
+  let g = 1;
+  for (let i = 0; i < env.length; i++) {
+    const target = env[i] > th ? duckRatio : 1;
+    const coef = target < g ? 0.55 : 0.08; // 絞り(attack)は速く、復帰(release)は遅く
+    g += (target - g) * coef;
+    curve[i] = g;
+  }
+  return curve;
+}
+
+// 声とBGMを同じオーディオグラフに繋ぐ共通関数。
+// destinationが「スピーカー(試聴)」か「オフライン(書き出し)」かの違いだけで
+// 同じ構成を使い回せる = 試聴と完成品の音が一致する、が狙い。
+// 配線: 声 → ノーマライズGain → 出力
+//       BGM → ダッキングGain(カーブ) → 音量Gain(スライダー) → 出力
+// offset(秒)を渡すと途中から再生できる(v5: シーク対応)。
+function connectMixGraph(ctx, voiceBuf, gainValue, offset = 0) {
+  const dur = voiceBuf.duration;
+  offset = Math.max(0, Math.min(offset, dur - 0.05));
+  const remain = dur - offset;
+
+  // 声側
+  const voiceSrc = ctx.createBufferSource();
+  voiceSrc.buffer = voiceBuf;
+  const vGain = ctx.createGain();
+  vGain.gain.value = normalizeEnabled ? computeVoiceGain(voiceBuf) : 1;
+  voiceSrc.connect(vGain).connect(ctx.destination);
+
+  // BGM側
+  const bgmSrc = ctx.createBufferSource();
+  bgmSrc.buffer = bgmBuffer;
+  bgmSrc.loop = true; // 声より短いBGMは自動ループ
+  const duckGain = ctx.createGain();
+  const volGain = ctx.createGain();
+  volGain.gain.value = gainValue; // スライダーの音量はここ(試聴中も触れる)
+
+  const win = 0.05; // 50ms刻み
+  let curve;
+  if (duckEnabled) {
+    curve = buildDuckCurve(computeEnvelope(voiceBuf, win), 0.35);
+  } else {
+    curve = new Float32Array(Math.max(2, Math.ceil(dur / win))).fill(1);
+  }
+  // 終端フェードアウトもカーブに焼き込む(プツッと切れるのを防ぐ)
+  const fade = Math.min(2, dur / 4);
+  const fadePts = Math.max(1, Math.round(fade / win));
+  for (let i = 0; i < fadePts && i < curve.length; i++) {
+    const idx = curve.length - 1 - i;
+    curve[idx] *= i / fadePts;
+  }
+  // シーク時はカーブもoffset位置から切り出して適用(音と絞りのタイミングを一致させる)
+  const startIdx = Math.max(0, Math.min(curve.length - 2, Math.floor(offset / win)));
+  const sub = curve.subarray(startIdx);
+  duckGain.gain.setValueCurveAtTime(sub, ctx.currentTime, remain);
+  bgmSrc.connect(duckGain).connect(volGain).connect(ctx.destination);
+
+  // BGMはループ前提なので、曲の長さで割った余りが「offset時点での曲内の位置」
+  voiceSrc.start(0, offset);
+  bgmSrc.start(0, offset % bgmBuffer.duration);
+  bgmSrc.stop(ctx.currentTime + remain);
+  return { voiceSrc, gain: volGain };
+}
+
+async function startPreview(rec, offset = 0) {
+  try {
+    player.pause(); playingId = null;
+    stopEdPlay();
+    // 声のデコード結果をキャッシュ: シークのたびに数秒待たされるのを防ぐ
+    if (!pvVoiceBuf) pvVoiceBuf = await decodeBlob(rec.blob);
+    stopPreview(true); // 再構築(キャッシュは保持)
+    previewCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const { voiceSrc, gain } = connectMixGraph(previewCtx, pvVoiceBuf, bgmVolume, offset);
+    previewCtx._bgmGain = gain; // スライダーから音量を触れるよう保持
+    pvDur = pvVoiceBuf.duration;
+    pvOffset = Math.max(0, Math.min(offset, pvDur - 0.05));
+    pvStartT = previewCtx.currentTime;
+    const gen = ++pvGen; // シークによる停止と最後まで聴き終えた停止を区別する世代番号
+    voiceSrc.onended = () => { if (gen !== pvGen) return; stopPreview(); renderList(); };
+    pvTick();
+  } catch (e) {
+    $("error").textContent = "試聴に失敗しました: " + e.message;
+    stopPreview();
+  }
+}
+
+// 試聴の進行をシークバーと時間表示に反映(毎フレーム)
+function pvTick() {
+  if (!previewCtx) return;
+  const cur = Math.min(pvDur, pvOffset + (previewCtx.currentTime - pvStartT));
+  const seek = $("pvSeek"), label = $("pvTime");
+  if (seek && !pvDragging) seek.value = pvDur ? Math.round(cur / pvDur * 1000) : 0;
+  if (label && !pvDragging) label.textContent = fmtTime(cur) + " / " + fmtTime(pvDur);
+  pvRaf = requestAnimationFrame(pvTick);
+}
+
+function stopPreview(keepBuf) {
+  pvGen++;
+  if (pvRaf) cancelAnimationFrame(pvRaf);
+  pvRaf = null;
+  if (previewCtx) {
+    try { previewCtx.close(); } catch (e) {}
+    previewCtx = null;
+  }
+  if (!keepBuf) pvVoiceBuf = null; // パネルを閉じる等の完全停止ではキャッシュも破棄
+}
+
+async function commitMix(rec, btn) {
+  if (!bgmBuffer) return;
+  const orig = btn.textContent;
+  btn.textContent = "ミックス中…";
+  btn.disabled = true;
+  try {
+    stopPreview();
+    const voiceBuf = await decodeBlob(rec.blob);
+    // OfflineAudioContext = リアルタイムでなく一気に計算する音声処理環境。
+    // 10分の音声でも数秒でミックスが終わる。
+    const off = new OfflineAudioContext(2, voiceBuf.length, voiceBuf.sampleRate);
+    connectMixGraph(off, voiceBuf, bgmVolume);
+    const mixed = await off.startRendering();
+
+    const wavBlob = audioBufferToWav(mixed);
+    const now = new Date();
+    // 非破壊: 元の録音は残し、ミックス済みを新規エントリとして追加
+    recordings.unshift({
+      id: idCounter++,
+      name: rec.name + " (BGM)",
+      blob: wavBlob,
+      url: URL.createObjectURL(wavBlob),
+      duration: mixed.duration,
+      createdAt: (now.getMonth() + 1) + "/" + now.getDate() + " " +
+        String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0"),
+      edited: false, mixed: true,
+    });
+    closeBgmPanel();
+  } catch (e) {
+    $("error").textContent = "ミックスに失敗しました: " + e.message;
+    btn.textContent = orig;
+    btn.disabled = false;
+  }
+}
+
+renderList();
+</script>
+</body>
+</html>
