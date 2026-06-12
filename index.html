@@ -920,7 +920,7 @@ function buildBgmPanel(rec) {
   fileLabel.textContent = bgmFileName || "未選択";
   const fileInput = document.createElement("input");
   fileInput.type = "file";
-  fileInput.accept = "audio/*";
+  fileInput.accept = "audio/*,.mp3,.m4a,.wav,.aac";
   fileInput.style.display = "none";
   fileInput.onchange = async () => {
     const f = fileInput.files[0];
