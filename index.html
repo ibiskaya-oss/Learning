@@ -2,8 +2,13 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>収録ブース v5 — ポッドキャスト録音</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<!-- iOS対応: ホーム画面に追加したとき全画面のアプリ風に起動させる設定 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="収録ブース">
+<meta name="theme-color" content="#16130F">
+<title>収録ブース v7 — ポッドキャスト録音</title>
 <style>
   /* デザイントークン: 色をここに集約しておくと後で一括変更できる */
   :root {
@@ -68,7 +73,15 @@
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
   #error { margin-top: 10px; font-size: 13px; color: var(--red); }
 
-  .lib-label { font-size: 11px; letter-spacing: .25em; color: var(--muted); margin: 28px 0 12px; }
+  .lib-label { font-size: 11px; letter-spacing: .25em; color: var(--muted); }
+  .lib-header { display: flex; align-items: center; gap: 12px; margin: 28px 0 12px; }
+  .import-btn {
+    margin-left: auto;
+    background: transparent; color: var(--amber);
+    border: 1px solid var(--amber); border-radius: 8px;
+    padding: 7px 14px; font-size: 12px; font-weight: 600; font-family: inherit;
+  }
+  .import-btn:hover { background: rgba(242,163,60,0.08); opacity: 1; }
   .empty { padding: 32px 0; text-align: center; color: var(--dim); font-size: 14px; }
 
   .card {
@@ -186,11 +199,11 @@
   <header>
     <div>
       <div class="eyebrow mono">ON AIR STUDIO</div>
-      <h1>収録ブース <span class="mono" style="font-size:12px;color:var(--muted)">v5</span></h1>
+      <h1>収録ブース <span class="mono" style="font-size:12px;color:var(--muted)">v7</span></h1>
     </div>
     <div class="mono" id="count" style="font-size:11px;color:var(--muted)"></div>
   </header>
-  <p class="note">※ 録音はブラウザのメモリ上にのみ保持されます。残したい録音はMP3/WAVでダウンロードしてください(再読み込みで消えます)。<br>
+  <p class="note">※ 録音はこの端末のブラウザ内に自動保存され、アプリを閉じても残ります(外部には送信されません)。ただしブラウザのデータ削除や容量逼迫で消える場合があるため、大切な録音はMP3/WAVでダウンロードしておくと安心です。<br>
   ※ BGMはフリー素材サイト等からご自身でダウンロードしたファイルを読み込んでください(素材の利用規約はご確認を)。</p>
 
   <section class="console">
@@ -231,7 +244,11 @@
     </div>
   </details>
 
-  <div class="lib-label mono">LIBRARY</div>
+  <div class="lib-header">
+    <span class="lib-label mono">LIBRARY</span>
+    <button id="importBtn" class="import-btn">↓ 音声を読み込む</button>
+    <input type="file" id="importInput" accept="audio/*,.mp3,.m4a,.wav,.aac,.caf,.aiff" multiple style="display:none">
+  </div>
   <div id="list"></div>
 </div>
 
@@ -255,6 +272,8 @@ let mediaRecorder = null, stream = null, chunks = [];
 let timerInterval = null, rafId = null;
 let audioCtx = null, analyser = null;
 let playingId = null;
+let wakeLock = null;        // 録音中に画面を消させないためのロック(v6)
+let db = null;             // IndexedDB接続(v6: 録音の永続保存)
 const player = new Audio();
 let editingId = null, editBuffer = null, selection = null, dragAnchor = null;
 let dragMoved = false, downX = 0; // タップとドラッグを区別するための記録
@@ -280,6 +299,82 @@ function fmtTime(sec) {
   const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
   return String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
 }
+// バイト数を読みやすい単位に整形(容量表示用)
+function fmtSize(bytes) {
+  if (!bytes) return "";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
+  return (bytes / 1024 / 1024).toFixed(1) + " MB";
+}
+
+// ---------- IndexedDB(v6: 録音の永続保存) ----------
+// なぜIndexedDBか: localStorageは文字列専用で容量も小さく、音声には不向き。
+// IndexedDBは音声のBlobをそのまま・大容量で・あなたのiPhone内に保存できる。
+// 外部送信は一切なし(オフライン完結)。
+const DB_NAME = "recording-booth";
+const STORE = "recordings";
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    // onupgradeneeded = 初回または版数更新時だけ走る。テーブル(ストア)の作成はここ。
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains(STORE)) {
+        d.createObjectStore(STORE, { keyPath: "id" });
+      }
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// 保存用に整形: メモリ専用のurl(再起動で無効化する)はDBに入れない。
+// blob本体さえあれば、読み込み時にurlは作り直せる。
+function toRecord(rec) {
+  return {
+    id: rec.id, name: rec.name, blob: rec.blob,
+    duration: rec.duration, createdAt: rec.createdAt,
+    edited: rec.edited, mixed: rec.mixed, imported: rec.imported, savedId: rec.savedId,
+  };
+}
+
+async function dbPut(rec) {
+  if (!db) return;
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).put(toRecord(rec));
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) {
+    // 保存失敗(容量超過など)でもアプリは止めず、警告だけ出す
+    $("error").textContent = "録音の永続保存に失敗しました(端末の空き容量をご確認ください)。録音自体は使えますが、再起動で消える可能性があります。";
+  }
+}
+
+async function dbDelete(id) {
+  if (!db) return;
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).delete(id);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) {}
+}
+
+async function dbLoadAll() {
+  if (!db) return [];
+  return new Promise((resolve) => {
+    const tx = db.transaction(STORE, "readonly");
+    const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => resolve([]);
+  });
+}
+
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -407,13 +502,19 @@ async function startRecording() {
     chunks = [];
     mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
     mediaRecorder.onstop = onRecordingStopped;
-    mediaRecorder.start();
+    // start(1000) = 1秒ごとに録音データを小片で確保(v6)。
+    // 途中で中断されても、それまでの分が chunks に残るので全損を防げる。
+    mediaRecorder.start(1000);
+
+    // Wake Lock: 録音中は画面を消さないようOSにお願いする(v6)。
+    // 対応していない端末/ブラウザでも録音自体は動くよう、失敗は黙って許容。
+    await requestWakeLock();
 
     isRecording = true;
     $("recBtn").classList.add("recording");
     $("recBtn").setAttribute("aria-label", "録音を停止");
     $("timer").classList.add("live");
-    $("status").innerHTML = '<span class="live-dot"></span>収録中 — タップで停止';
+    $("status").innerHTML = '<span class="live-dot"></span>収録中 — タップで停止(録音中は画面が消えません)';
     const t0 = Date.now();
     timerInterval = setInterval(() => { $("timer").textContent = fmtTime((Date.now() - t0) / 1000); }, 200);
     rafId = requestAnimationFrame(drawMeter);
@@ -426,20 +527,41 @@ async function startRecording() {
   }
 }
 
+// 画面スリープ抑止。Promiseが取れないブラウザでも例外を握りつぶして続行。
+async function requestWakeLock() {
+  try {
+    if ("wakeLock" in navigator) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      // 何らかの理由で解除されたら参照を捨てる(録音中なら下のvisibilitychangeで再取得)
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    }
+  } catch (e) { wakeLock = null; }
+}
+
+// 画面復帰時、録音中ならWake Lockを取り直す。
+// iOSはタブを離れるとロックを自動解除するため、戻ったら再取得が要る。
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && isRecording && !wakeLock) {
+    requestWakeLock();
+  }
+});
+
 async function onRecordingStopped() {
   const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
   const url = URL.createObjectURL(blob);
   let duration = 0;
   try { duration = (await decodeBlob(blob)).duration; } catch (e) {}
   const now = new Date();
-  recordings.unshift({
+  const rec = {
     id: idCounter++,
     name: "収録 " + String(recordings.length + 1).padStart(2, "0"),
-    blob, url, duration,
+    blob, url, duration, size: blob.size,
     createdAt: (now.getMonth() + 1) + "/" + now.getDate() + " " +
       String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0"),
     edited: false, mixed: false,
-  });
+  };
+  recordings.unshift(rec);
+  await dbPut(rec); // ブラウザ内DBへ永続保存(v6)
   renderList();
 }
 
@@ -449,6 +571,7 @@ function stopRecording() {
   audioCtx?.close();
   cancelAnimationFrame(rafId);
   clearInterval(timerInterval);
+  if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; } // 画面ロック抑止を解除
   isRecording = false;
   $("recBtn").classList.remove("recording");
   $("recBtn").setAttribute("aria-label", "録音を開始");
@@ -459,6 +582,55 @@ function stopRecording() {
 }
 
 $("recBtn").addEventListener("click", () => isRecording ? stopRecording() : startRecording());
+
+// ---------- 外部音声の読み込み(v7) ----------
+// 純正録音アプリなどで撮った音声を取り込み、録音と同じように
+// 編集・BGM MIX・書き出しできるようにする。録音処理とは別系統の入口。
+$("importBtn").addEventListener("click", () => $("importInput").click());
+$("importInput").addEventListener("change", async (e) => {
+  const files = Array.from(e.target.files || []);
+  e.target.value = ""; // 同じファイルを連続で選べるようリセット
+  if (!files.length) return;
+  $("error").textContent = "";
+  $("importBtn").textContent = "読み込み中…";
+  $("importBtn").disabled = true;
+
+  let okCount = 0, failNames = [];
+  for (const file of files) {
+    try {
+      // decodeAudioData が通る = このブラウザで扱える音声、という確認も兼ねる。
+      // ここで duration も得られる。iPhoneのm4a/caf等もSafariなら大抵通る。
+      const buf = await decodeBlob(file);
+      const now = new Date();
+      // 拡張子を除いたファイル名を録音名に流用(分かりやすさ重視)
+      const baseName = file.name.replace(/\.[^.]+$/, "") || "読み込み音声";
+      const rec = {
+        id: idCounter++,
+        name: baseName,
+        blob: file,                       // 元ファイルをそのまま保持
+        url: URL.createObjectURL(file),
+        duration: buf.duration,
+        size: file.size,
+        createdAt: (now.getMonth() + 1) + "/" + now.getDate() + " " +
+          String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0"),
+        edited: false, mixed: false, imported: true, // 取り込み品である印
+      };
+      recordings.unshift(rec);
+      await dbPut(rec); // 録音と同じく永続保存
+      okCount++;
+    } catch (err) {
+      failNames.push(file.name);
+    }
+  }
+
+  $("importBtn").textContent = "↓ 音声を読み込む";
+  $("importBtn").disabled = false;
+  if (failNames.length) {
+    // 一部失敗しても成功分は活かす。失敗は形式非対応が主因。
+    $("error").textContent = "次のファイルは読み込めませんでした(対応していない形式の可能性があります): " + failNames.join(", ");
+  }
+  if (okCount) renderList();
+});
 
 // ---------- 再生 ----------
 player.addEventListener("timeupdate", () => {
@@ -482,7 +654,7 @@ function renderList() {
   $("count").textContent = recordings.length ? recordings.length + " 件" : "";
   const list = $("list");
   if (recordings.length === 0) {
-    list.innerHTML = '<div class="empty">まだ録音がありません。上の赤いボタンから最初の一本をどうぞ。</div>';
+    list.innerHTML = '<div class="empty">まだ録音がありません。上の赤いボタンで録音するか、「音声を読み込む」で手持ちのファイルを取り込めます。</div>';
     return;
   }
   list.innerHTML = "";
@@ -503,9 +675,11 @@ function renderList() {
     info.className = "info";
     info.innerHTML =
       '<div class="name">' + escapeHtml(rec.name) +
+      (rec.imported ? '<span class="badge mono">IMPORTED</span>' : "") +
       (rec.edited ? '<span class="badge mono">EDITED</span>' : "") +
       (rec.mixed ? '<span class="badge mono">+BGM</span>' : "") + "</div>" +
-      '<div class="meta mono">' + fmtTime(rec.duration) + " ・ " + rec.createdAt + "</div>";
+      '<div class="meta mono">' + fmtTime(rec.duration) + " ・ " + rec.createdAt +
+      (rec.size ? " ・ " + fmtSize(rec.size) : "") + "</div>";
 
     const actions = document.createElement("div");
     actions.className = "actions";
@@ -550,7 +724,7 @@ function startRename(rec, infoEl) {
   const input = document.createElement("input");
   input.className = "rename-input";
   input.value = rec.name;
-  const commit = () => { rec.name = input.value.trim() || rec.name; renderList(); };
+  const commit = () => { rec.name = input.value.trim() || rec.name; dbPut(rec); renderList(); };
   input.onblur = commit;
   input.onkeydown = (e) => { if (e.key === "Enter") input.blur(); };
   infoEl.querySelector(".name").replaceWith(input);
@@ -566,6 +740,7 @@ function deleteRecording(rec) {
   if (bgmPanelId === rec.id) closeBgmPanel();
   URL.revokeObjectURL(rec.url);
   recordings = recordings.filter((r) => r.id !== rec.id);
+  dbDelete(rec.id); // ブラウザ内DBからも削除(v6)
   renderList();
 }
 
@@ -862,7 +1037,9 @@ async function deleteSelection() {
     rec.blob = wavBlob;
     rec.url = URL.createObjectURL(wavBlob);
     rec.duration = out.duration;
+    rec.size = wavBlob.size;
     rec.edited = true;
+    dbPut(rec); // 編集結果を永続保存(v6)
     editBuffer = out;
     // カット地点を再生位置にセット → 「▶ ここから再生」で繋ぎ目をすぐ確認できる
     playhead = Math.max(0, Math.min(selection.start, out.duration - 0.05));
@@ -1174,16 +1351,19 @@ async function commitMix(rec, btn) {
     const wavBlob = audioBufferToWav(mixed);
     const now = new Date();
     // 非破壊: 元の録音は残し、ミックス済みを新規エントリとして追加
-    recordings.unshift({
+    const mixedRec = {
       id: idCounter++,
       name: rec.name + " (BGM)",
       blob: wavBlob,
       url: URL.createObjectURL(wavBlob),
       duration: mixed.duration,
+      size: wavBlob.size,
       createdAt: (now.getMonth() + 1) + "/" + now.getDate() + " " +
         String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0"),
       edited: false, mixed: true,
-    });
+    };
+    recordings.unshift(mixedRec);
+    await dbPut(mixedRec); // ミックス結果を永続保存(v6)
     closeBgmPanel();
   } catch (e) {
     $("error").textContent = "ミックスに失敗しました: " + e.message;
@@ -1192,7 +1372,30 @@ async function commitMix(rec, btn) {
   }
 }
 
-renderList();
+// ---------- 起動時の初期化(v6) ----------
+// DBを開いて保存済み録音を復元。DBが使えない環境でもアプリは普通に動く。
+async function init() {
+  try {
+    db = await openDB();
+    const saved = await dbLoadAll();
+    if (saved.length) {
+      // 保存順(id昇順)に並べてから上へ積むと、新しいものが一番上に来る
+      saved.sort((a, b) => a.id - b.id);
+      saved.forEach((r) => {
+        // urlはメモリ専用で再起動後は無効なので、blobから作り直す
+        r.url = URL.createObjectURL(r.blob);
+        if (!r.size && r.blob) r.size = r.blob.size;
+        recordings.unshift(r);
+        idCounter = Math.max(idCounter, r.id + 1); // ID重複を防ぐ
+      });
+    }
+  } catch (e) {
+    $("error").textContent = "保存済み録音の読み込みに失敗しました(この回は録音が一時保存のみになります)。";
+  }
+  renderList();
+}
+
+init();
 </script>
 </body>
 </html>
