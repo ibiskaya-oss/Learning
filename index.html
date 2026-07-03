@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="収録ブース">
 <meta name="theme-color" content="#16130F">
-<title>収録ブース v7 — ポッドキャスト録音</title>
+<title>収録ブース v8 — ポッドキャスト録音</title>
 <style>
   /* デザイントークン: 色をここに集約しておくと後で一括変更できる */
   :root {
@@ -199,7 +199,7 @@
   <header>
     <div>
       <div class="eyebrow mono">ON AIR STUDIO</div>
-      <h1>収録ブース <span class="mono" style="font-size:12px;color:var(--muted)">v7</span></h1>
+      <h1>収録ブース <span class="mono" style="font-size:12px;color:var(--muted)">v8</span></h1>
     </div>
     <div class="mono" id="count" style="font-size:11px;color:var(--muted)"></div>
   </header>
@@ -860,6 +860,8 @@ function startEdPlay(selOnly) {
   if (!editBuffer) return;
   const gen = ++edGen; // 世代番号: 古い再生のonendedが新しい再生を壊さないための仕組み
   edCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // 安全網(v8): まれに停止状態で生まれる端末があるため起こしておく
+  if (edCtx.state === "suspended") { edCtx.resume().catch(() => {}); }
   const src = edCtx.createBufferSource();
   src.buffer = editBuffer;
   src.connect(edCtx.destination);
@@ -1295,10 +1297,17 @@ async function startPreview(rec, offset = 0) {
   try {
     player.pause(); playingId = null;
     stopEdPlay();
+    stopPreview(true); // 再構築(キャッシュは保持)
+    // iOS対策(v8): AudioContextはタップと「同じ同期処理内」で作る。
+    // デコード(await)の後に作ると、iOSは「ユーザー操作由来ではない」と
+    // 判定して装置を停止状態(suspended)のままにし、音が出なくなる。
+    previewCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (previewCtx.state === "suspended") {
+      try { await previewCtx.resume(); } catch (e) {}
+    }
     // 声のデコード結果をキャッシュ: シークのたびに数秒待たされるのを防ぐ
     if (!pvVoiceBuf) pvVoiceBuf = await decodeBlob(rec.blob);
-    stopPreview(true); // 再構築(キャッシュは保持)
-    previewCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!previewCtx) return; // デコード待ちの間に停止されたら中断
     const { voiceSrc, gain } = connectMixGraph(previewCtx, pvVoiceBuf, bgmVolume, offset);
     previewCtx._bgmGain = gain; // スライダーから音量を触れるよう保持
     pvDur = pvVoiceBuf.duration;
@@ -1306,6 +1315,10 @@ async function startPreview(rec, offset = 0) {
     pvStartT = previewCtx.currentTime;
     const gen = ++pvGen; // シークによる停止と最後まで聴き終えた停止を区別する世代番号
     voiceSrc.onended = () => { if (gen !== pvGen) return; stopPreview(); renderList(); };
+    // 念押しのresume: 端末によっては配線が終わってからでないと起きないため
+    if (previewCtx && previewCtx.state === "suspended") {
+      try { await previewCtx.resume(); } catch (e) {}
+    }
     pvTick();
   } catch (e) {
     $("error").textContent = "試聴に失敗しました: " + e.message;
