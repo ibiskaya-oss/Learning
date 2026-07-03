@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="収録ブース">
 <meta name="theme-color" content="#16130F">
-<title>収録ブース v8 — ポッドキャスト録音</title>
+<title>収録ブース v9 — ポッドキャスト録音</title>
 <style>
   /* デザイントークン: 色をここに集約しておくと後で一括変更できる */
   :root {
@@ -100,7 +100,7 @@
   .name { font-size: 14px; font-weight: 600; }
   .badge { font-size: 10px; color: var(--amber); margin-left: 8px; }
   .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
   .iconbtn {
     background: transparent; color: var(--muted); border: 1px solid var(--line);
     border-radius: 8px; padding: 6px 10px; font-size: 12px;
@@ -108,6 +108,18 @@
   .iconbtn:hover { color: var(--text); border-color: var(--muted); opacity: 1; }
   .iconbtn.danger { color: var(--red); }
   .iconbtn.active { color: var(--amber); border-color: var(--amber); }
+
+  /* ボタングループ(v9): 見出し+枠で「編集/出力/削除」の系統を視覚化 */
+  .btn-group { display: flex; flex-direction: column; gap: 3px; }
+  .group-cap { font-size: 9px; letter-spacing: .2em; color: var(--dim); padding-left: 3px; }
+  .group-row { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .group-row .iconbtn { border: none; border-radius: 0; border-right: 1px solid var(--line); }
+  .group-row .iconbtn:last-child { border-right: none; }
+  .group-row .iconbtn.active { background: rgba(242,163,60,0.1); }
+  .out-group .group-row { border-color: rgba(242,163,60,0.45); }
+  .out-group .group-row .iconbtn { border-right-color: rgba(242,163,60,0.25); color: var(--amber); }
+  .out-group .group-row .iconbtn:hover { background: rgba(242,163,60,0.08); }
+  .del-group .group-row { border-color: rgba(229,72,77,0.45); }
 
   .progress { margin-top: 10px; height: 3px; background: var(--line); border-radius: 2px; }
   .progress > div { height: 100%; width: 0; background: var(--amber); border-radius: 2px; }
@@ -199,7 +211,7 @@
   <header>
     <div>
       <div class="eyebrow mono">ON AIR STUDIO</div>
-      <h1>収録ブース <span class="mono" style="font-size:12px;color:var(--muted)">v8</span></h1>
+      <h1>収録ブース <span class="mono" style="font-size:12px;color:var(--muted)">v9</span></h1>
     </div>
     <div class="mono" id="count" style="font-size:11px;color:var(--muted)"></div>
   </header>
@@ -442,9 +454,10 @@ function floatTo16(f32) {
   return out;
 }
 
-function audioBufferToMp3(buffer) {
+function audioBufferToMp3(buffer, kbps = 128) {
   const ch = Math.min(2, buffer.numberOfChannels);
-  const encoder = new lamejs.Mp3Encoder(ch, buffer.sampleRate, 128); // 128kbps = ポッドキャスト標準的品質
+  // 128kbps=ポッドキャスト標準、320kbps=MP3の最高音質(ファイルは約2.5倍になる)
+  const encoder = new lamejs.Mp3Encoder(ch, buffer.sampleRate, kbps);
   const left = floatTo16(buffer.getChannelData(0));
   const right = ch === 2 ? floatTo16(buffer.getChannelData(1)) : null;
   const block = 1152; // MP3のフレーム単位
@@ -685,13 +698,35 @@ function renderList() {
     actions.className = "actions";
     const bgmBtn = makeBtn("BGM", () => bgmPanelId === rec.id ? closeBgmPanel() : openBgmPanel(rec));
     if (bgmPanelId === rec.id) bgmBtn.classList.add("active");
+
+    // ボタンを役割別にグループ化(v9): 「編集する」「出力する」「消す」で
+    // 視線の迷いをなくす。枠の色でも系統を示す(出力=アンバー、削除=赤)。
+    const makeGroup = (caption, btns, extraClass) => {
+      const g = document.createElement("div");
+      g.className = "btn-group" + (extraClass ? " " + extraClass : "");
+      const cap = document.createElement("span");
+      cap.className = "group-cap mono";
+      cap.textContent = caption;
+      const row = document.createElement("div");
+      row.className = "group-row";
+      btns.forEach((b) => row.append(b));
+      g.append(cap, row);
+      return g;
+    };
     actions.append(
-      makeBtn("名前", () => startRename(rec, info)),
-      makeBtn(editingId === rec.id ? "閉じる" : "編集", () => editingId === rec.id ? closeEditor() : openEditor(rec)),
-      bgmBtn,
-      makeBtn("MP3", (e) => downloadMp3(rec, e.target)),
-      makeBtn("WAV", () => downloadWav(rec)),
-      makeBtn("削除", () => deleteRecording(rec), true),
+      makeGroup("編集", [
+        makeBtn("名前", () => startRename(rec, info)),
+        makeBtn(editingId === rec.id ? "閉じる" : "編集", () => editingId === rec.id ? closeEditor() : openEditor(rec)),
+        bgmBtn,
+      ]),
+      makeGroup("出力", [
+        makeBtn("MP3", (e) => downloadMp3(rec, e.target, 128)),
+        makeBtn("MP3 HQ", (e) => downloadMp3(rec, e.target, 320)),
+        makeBtn("WAV", () => downloadWav(rec)),
+      ], "out-group"),
+      makeGroup("削除", [
+        makeBtn("削除", () => deleteRecording(rec), true),
+      ], "del-group"),
     );
 
     row.append(playBtn, info, actions);
@@ -766,7 +801,7 @@ async function downloadWav(rec) {
   }
 }
 
-async function downloadMp3(rec, btn) {
+async function downloadMp3(rec, btn, kbps = 128) {
   const orig = btn ? btn.textContent : null;
   if (btn) { btn.textContent = "変換中…"; btn.disabled = true; }
   try {
@@ -777,8 +812,9 @@ async function downloadMp3(rec, btn) {
       return;
     }
     const buf = await decodeBlob(rec.blob);
-    const mp3 = audioBufferToMp3(buf);
-    triggerDownload(mp3, rec.name + ".mp3");
+    const mp3 = audioBufferToMp3(buf, kbps);
+    // 320kはファイル名にも明記(あとでどちらの品質か見分けられるように)
+    triggerDownload(mp3, rec.name + (kbps === 320 ? "_320k" : "") + ".mp3");
   } catch (e) {
     $("error").textContent = "MP3書き出しに失敗しました: " + e.message;
   } finally {
