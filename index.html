@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="収録ブース">
 <meta name="theme-color" content="#16130F">
-<title>収録ブース v9 — ポッドキャスト録音</title>
+<title>収録ブース v10 — ポッドキャスト録音</title>
 <style>
   /* デザイントークン: 色をここに集約しておくと後で一括変更できる */
   :root {
@@ -121,6 +121,15 @@
   .out-group .group-row .iconbtn:hover { background: rgba(242,163,60,0.08); }
   .del-group .group-row { border-color: rgba(229,72,77,0.45); }
 
+  /* ゴミ箱の行(v10) */
+  .trash-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+    padding: 10px 0; border-top: 1px solid var(--line);
+  }
+  .trash-row:first-child { border-top: none; }
+  .trash-row .name { font-size: 13px; }
+
   .progress { margin-top: 10px; height: 3px; background: var(--line); border-radius: 2px; }
   .progress > div { height: 100%; width: 0; background: var(--amber); border-radius: 2px; }
 
@@ -211,7 +220,7 @@
   <header>
     <div>
       <div class="eyebrow mono">ON AIR STUDIO</div>
-      <h1>収録ブース <span class="mono" style="font-size:12px;color:var(--muted)">v9</span></h1>
+      <h1>収録ブース <span class="mono" style="font-size:12px;color:var(--muted)">v10</span></h1>
     </div>
     <div class="mono" id="count" style="font-size:11px;color:var(--muted)"></div>
   </header>
@@ -262,6 +271,15 @@
     <input type="file" id="importInput" accept="audio/*,.mp3,.m4a,.wav,.aac,.caf,.aiff" multiple style="display:none">
   </div>
   <div id="list"></div>
+
+  <!-- ゴミ箱(v10): 削除は一旦ここに入り、7日後に自動で完全削除される -->
+  <details class="links" id="trashPanel" style="display:none">
+    <summary id="trashSummary">🗑 ゴミ箱</summary>
+    <div class="links-body">
+      <p class="links-note">ここにある録音は<strong>7日後に自動で完全削除</strong>されます(掃除はアプリを開いたタイミングで実行)。それまでは「復元」でLIBRARYに戻せます。ゴミ箱内も保存容量を使い続ける点にご注意を。</p>
+      <div id="trashList"></div>
+    </div>
+  </details>
 </div>
 
 <script>
@@ -346,7 +364,7 @@ function toRecord(rec) {
   return {
     id: rec.id, name: rec.name, blob: rec.blob,
     duration: rec.duration, createdAt: rec.createdAt,
-    edited: rec.edited, mixed: rec.mixed, imported: rec.imported, savedId: rec.savedId,
+    edited: rec.edited, mixed: rec.mixed, imported: rec.imported, deletedAt: rec.deletedAt, savedId: rec.savedId,
   };
 }
 
@@ -664,14 +682,17 @@ function togglePlay(id) {
 
 // ---------- 一覧描画 ----------
 function renderList() {
-  $("count").textContent = recordings.length ? recordings.length + " 件" : "";
+  // ゴミ箱入り(deletedAtあり)はLIBRARYに出さない(v10)
+  const visible = recordings.filter((r) => !r.deletedAt);
+  $("count").textContent = visible.length ? visible.length + " 件" : "";
   const list = $("list");
-  if (recordings.length === 0) {
+  renderTrash(); // ゴミ箱パネルは常に最新化
+  if (visible.length === 0) {
     list.innerHTML = '<div class="empty">まだ録音がありません。上の赤いボタンで録音するか、「音声を読み込む」で手持ちのファイルを取り込めます。</div>';
     return;
   }
   list.innerHTML = "";
-  recordings.forEach((rec) => {
+  visible.forEach((rec) => {
     const card = document.createElement("div");
     card.className = "card" + (editingId === rec.id || bgmPanelId === rec.id ? " editing" : "");
 
@@ -714,18 +735,18 @@ function renderList() {
       return g;
     };
     actions.append(
-      makeGroup("編集", [
+      makeGroup("EDIT", [
         makeBtn("名前", () => startRename(rec, info)),
-        makeBtn(editingId === rec.id ? "閉じる" : "編集", () => editingId === rec.id ? closeEditor() : openEditor(rec)),
+        makeBtn(editingId === rec.id ? "閉じる" : "カット", () => editingId === rec.id ? closeEditor() : openEditor(rec)),
         bgmBtn,
       ]),
-      makeGroup("出力", [
+      makeGroup("EXPORT", [
         makeBtn("MP3", (e) => downloadMp3(rec, e.target, 128)),
         makeBtn("MP3 HQ", (e) => downloadMp3(rec, e.target, 320)),
         makeBtn("WAV", () => downloadWav(rec)),
       ], "out-group"),
-      makeGroup("削除", [
-        makeBtn("削除", () => deleteRecording(rec), true),
+      makeGroup("TRASH", [
+        makeBtn("ゴミ箱へ", () => moveToTrash(rec), true),
       ], "del-group"),
     );
 
@@ -767,16 +788,86 @@ function startRename(rec, infoEl) {
   input.select();
 }
 
-// ---------- 削除 ----------
-function deleteRecording(rec) {
-  if (!confirm("「" + rec.name + "」を削除します。元に戻せませんがよろしいですか?")) return;
+// ---------- ゴミ箱(v10) ----------
+// 設計方針: 削除ボタンで即消すのではなく「削除日時の印」を付けるだけにする。
+// 印付きはLIBRARYに出さずゴミ箱に表示。本当に消すのは
+// (a)ユーザーが完全削除を選んだとき (b)7日経過後の起動時掃除、の2つだけ。
+// → 「うっかり削除」が復元可能になり、不可逆な操作を最小化できる。
+const TRASH_RETENTION = 7 * 24 * 60 * 60 * 1000; // 保管期間: 7日
+
+function moveToTrash(rec) {
+  // 可逆な操作なので確認ダイアログは出さない(すぐ戻せるため)
   if (playingId === rec.id) { player.pause(); playingId = null; }
   if (editingId === rec.id) closeEditor();
   if (bgmPanelId === rec.id) closeBgmPanel();
+  rec.deletedAt = Date.now();
+  dbPut(rec);
+  renderList();
+}
+
+function restoreFromTrash(rec) {
+  delete rec.deletedAt;
+  dbPut(rec);
+  renderList();
+}
+
+// あと何日で完全削除されるか(表示用)
+function trashDaysLeft(rec) {
+  const left = TRASH_RETENTION - (Date.now() - rec.deletedAt);
+  return Math.max(1, Math.ceil(left / (24 * 60 * 60 * 1000)));
+}
+
+// 完全削除: ここだけは不可逆なので確認ダイアログを維持する
+function purgeOne(rec) {
+  if (!confirm("「" + rec.name + "」を完全に削除します。今度こそ元に戻せませんがよろしいですか?")) return;
   URL.revokeObjectURL(rec.url);
   recordings = recordings.filter((r) => r.id !== rec.id);
-  dbDelete(rec.id); // ブラウザ内DBからも削除(v6)
+  dbDelete(rec.id);
   renderList();
+}
+
+function emptyTrash() {
+  const trashed = recordings.filter((r) => r.deletedAt);
+  if (!trashed.length) return;
+  if (!confirm("ゴミ箱内の " + trashed.length + " 件をすべて完全削除します。元に戻せませんがよろしいですか?")) return;
+  trashed.forEach((r) => { URL.revokeObjectURL(r.url); dbDelete(r.id); });
+  recordings = recordings.filter((r) => !r.deletedAt);
+  renderList();
+}
+
+// ゴミ箱パネルの描画: 中身があるときだけ表示する
+function renderTrash() {
+  const panel = $("trashPanel"), listEl = $("trashList"), sum = $("trashSummary");
+  const trashed = recordings.filter((r) => r.deletedAt).sort((a, b) => b.deletedAt - a.deletedAt);
+  if (!trashed.length) { panel.style.display = "none"; return; }
+  panel.style.display = "";
+  const total = trashed.reduce((s, r) => s + (r.size || 0), 0);
+  sum.textContent = "🗑 ゴミ箱(" + trashed.length + "件" + (total ? " ・ " + fmtSize(total) : "") + ")";
+  listEl.innerHTML = "";
+  trashed.forEach((rec) => {
+    const row = document.createElement("div");
+    row.className = "trash-row";
+    const info = document.createElement("div");
+    info.className = "info";
+    info.innerHTML =
+      '<div class="name">' + escapeHtml(rec.name) + "</div>" +
+      '<div class="meta mono">' + fmtTime(rec.duration) +
+      (rec.size ? " ・ " + fmtSize(rec.size) : "") +
+      " ・ あと" + trashDaysLeft(rec) + "日で完全削除</div>";
+    const btns = document.createElement("div");
+    btns.className = "actions";
+    btns.append(
+      makeBtn("復元", () => restoreFromTrash(rec)),
+      makeBtn("完全削除", () => purgeOne(rec), true),
+    );
+    row.append(info, btns);
+    listEl.append(row);
+  });
+  const foot = document.createElement("div");
+  foot.className = "bar";
+  foot.style.marginTop = "12px";
+  foot.append(makeBtn("ゴミ箱を空にする", emptyTrash, true));
+  listEl.append(foot);
 }
 
 // ---------- 書き出し ----------
@@ -1430,7 +1521,14 @@ async function init() {
     if (saved.length) {
       // 保存順(id昇順)に並べてから上へ積むと、新しいものが一番上に来る
       saved.sort((a, b) => a.id - b.id);
+      const nowT = Date.now();
       saved.forEach((r) => {
+        // 起動時の掃除(v10): ゴミ箱入りから7日過ぎたものはここで完全削除。
+        // Webアプリは裏で動けないので「開いたときに掃除」が現実的な自動化。
+        if (r.deletedAt && nowT - r.deletedAt > TRASH_RETENTION) {
+          dbDelete(r.id);
+          return;
+        }
         // urlはメモリ専用で再起動後は無効なので、blobから作り直す
         r.url = URL.createObjectURL(r.blob);
         if (!r.size && r.blob) r.size = r.blob.size;
